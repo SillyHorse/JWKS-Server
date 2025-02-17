@@ -1,39 +1,46 @@
 package handlers
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"net/http"
-
-	"jwks-server/keys"
+    "encoding/base64"
+    "encoding/json"
+    "net/http"
+    "jwks-server/keys"
 )
 
-type JWKS struct {
-	Keys []JWK `json:"keys"`
+type JWKSResponse struct {
+    Keys []JWK `json:"keys"`
 }
 
 type JWK struct {
-	Kid string `json:"kid"`
-	Kty string `json:"kty"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-	Alg string `json:"alg"`
-	Use string `json:"use"`
+    Kid string `json:"kid"`
+    Kty string `json:"kty"`
+    Alg string `json:"alg"`
+    Use string `json:"use"`
+    N   string `json:"n"`
+    E   string `json:"e"`
 }
 
-func GetJWKSHandler(w http.ResponseWriter, r *http.Request) {
-	var jwks JWKS
-	for _, key := range keys.GetUnexpiredKeys() {
-		jwks.Keys = append(jwks.Keys, JWK{
-			Kid: key.Kid,
-			Kty: "RSA",
-			N:   base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
-			E:   "AQAB",
-			Alg: "RS256",
-			Use: "sig",
-		})
-	}
+func JWKSHandler(km *keys.KeyManager) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        validKeys := km.GetValidKeys()
+        response := JWKSResponse{Keys: make([]JWK, 0)}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jwks)
+        for _, key := range validKeys {
+            n := base64.RawURLEncoding.EncodeToString(key.Public.N.Bytes())
+            eBytes := []byte{byte(key.Public.E >> 16), byte(key.Public.E >> 8), byte(key.Public.E)}
+            e := base64.RawURLEncoding.EncodeToString(eBytes)
+
+            response.Keys = append(response.Keys, JWK{
+                Kid: key.Kid,
+                Kty: "RSA",
+                Alg: "RS256",
+                Use: "sig",
+                N:   n,
+                E:   e,
+            })
+        }
+
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(response)
+    }
 }

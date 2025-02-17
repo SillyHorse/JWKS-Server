@@ -1,38 +1,33 @@
 package handlers
 
 import (
-	"encoding/json"
-	"net/http"
-
-	"jwks-server/keys"
-	"jwks-server/utils"
-
-	"github.com/golang-jwt/jwt/v5"
+    "encoding/json"
+    "net/http"
+    "jwks-server/keys"
+    "time"
+    "github.com/golang-jwt/jwt/v5"
 )
 
-func AuthHandler(w http.ResponseWriter, r *http.Request) {
-	expiredRequested := r.URL.Query().Get("expired") == "true"
-	signingKey := keys.GetSigningKey(expiredRequested)
+func AuthHandler(km *keys.KeyManager) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        expired := r.URL.Query().Get("expired") == "true"
+        key := km.GenerateKey(expired)
 
-	if signingKey.PrivateKey == nil {
-		http.Error(w, "No valid keys available", http.StatusInternalServerError)
-		return
-	}
+        claims := jwt.MapClaims{
+            "sub":  "1234567890",
+            "name": "John Doe",
+            "iat":  time.Now().Unix(),
+            "exp":  key.Expiry.Unix(),
+        }
 
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, utils.Claims{
-		Username: "testuser",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(signingKey.Expiry),
-		},
-	})
+        token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+        token.Header["kid"] = key.Kid
+        
+        signedToken, _ := token.SignedString(key.Private)
 
-	token.Header["kid"] = signingKey.Kid
-	signedToken, err := token.SignedString(signingKey.PrivateKey)
-	if err != nil {
-		http.Error(w, "Failed to sign token", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": signedToken})
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(map[string]string{
+            "token": signedToken,
+        })
+    }
 }
